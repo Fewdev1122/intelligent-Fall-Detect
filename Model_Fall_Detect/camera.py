@@ -19,7 +19,7 @@ cap = cv2.VideoCapture(0)
 
 
 if not cap.isOpened():
-  print("เปืิดกล้องไม่ได้่")
+  print("เปิดกล้องไม่ได้่")
   exit()
 
 feature_buffer = deque(maxlen=SEQ_LEN)

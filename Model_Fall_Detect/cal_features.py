@@ -6,7 +6,7 @@ def calculate_features(kpts):
   ankle_mid = (kpts[15] + kpts[16])/2
   torso_len = np.linalg.norm(shoulder_mid - hip_mid)
 
-  if torso_len == 0:
+  if torso_len == 0: 
     torso_len = 1.0
   dy = shoulder_mid[1] - hip_mid[1]
   dx = shoulder_mid[0] - hip_mid[0]
