@@ -1,0 +1,30 @@
+# dataset / videos
+dataset/
+clips/
+fall_videos/
+
+# model / weights
+*.pt
+*.pth
+*.joblib
+*.pkl
+
+# python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# mac
+.DS_Store
+
+# node
+node_modules/
+.next/
+
+# firebase / logs
+*.log
+
+# secret keys
+keys/
+*.json
