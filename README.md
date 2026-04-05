@@ -35,16 +35,16 @@ The system analyzes video from CCTV cameras to detect and predict fall incidents
 
 ---
 
-## Project Structure
+##  Project Structure
 
 
-Fall_Detect/
+```Fall_Detect/
 ├── ai/ # AI models, training, feature extraction
 ├── edge/ # Real-time detection and alert system
 ├── backend/ # APIs and Firebase integration
 ├── web/ # Caregiver & EMS dashboards (Next.js)
 ├── models/ # Trained models
-└── requirements.txt
+└── requirements.txt```
 
 
 ---
