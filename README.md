@@ -134,6 +134,8 @@ git clone https://github.com/Fewdev1122/intelligent-Fall-Detect.git
 cd intelligent-Fall-Detect
 pip install -r requirements.txt
 python -m edge.camera
+```
+---
 
 ## Summary
 From fall detection → risk prediction → emergency response,
