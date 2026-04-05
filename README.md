@@ -134,7 +134,7 @@ git clone https://github.com/Fewdev1122/intelligent-Fall-Detect.git
 cd intelligent-Fall-Detect
 pip install -r requirements.txt
 python -m edge.camera
-Summary
 
+## Summary
 From fall detection → risk prediction → emergency response,
 this system transforms reactive monitoring into proactive safety.
