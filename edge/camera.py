@@ -4,6 +4,7 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/Volumes/WD_SSD/Dev/Project_II/F
 import time
 import threading
 from collections import deque
+from datetime import datetime
 import subprocess
 import cv2
 import numpy as np
@@ -16,6 +17,7 @@ from ai.rule_filter import rule_fall_filter
 from ai.cal_features import calculate_features
 from edge.clip_uploader import upload_clip
 from edge.incident_store import set_incident_clip_url
+from edge.mobility_store import save_mobility_metric, save_mobility_daily_summary
 
 # ================= PATH SAFE =================
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -35,10 +37,7 @@ FPS = 15
 TEMPORAL_WINDOW = 8
 TEMPORAL_CONFIRM = 2
 
-# ✅ 1. ปรับความเร็วดิ่งพื้นให้เป็นระดับงานวิจัย (ตกเร็วเกิน 20 px/frame)
 MOTION_SPIKE_THRESHOLD = 15
-
-# ✅ 2. เปลี่ยนเป็นรอดูอาการ 3 วินาที (ป้องกันการสะดุดแล้วลุกทันที)
 LYING_CONFIRM_FRAMES = FPS * 1.5
 
 PRE_SEC = 12
@@ -48,12 +47,24 @@ RULE_VOTE_THRESHOLD = 4
 XGB_THRESHOLD = 0.55
 
 COOLDOWN_SECONDS = 8
-MIN_INCIDENT_GAP = 10 
+MIN_INCIDENT_GAP = 10
 
 DISPLAY_FALL_SECONDS = 3
 LYING_CONFIRM_SECONDS = 2.5
 
 EXPECTED_FEATURES = 56
+
+# ---------------- MOBILITY TREND CONFIG ----------------
+PATIENT_ID = "PATIENT_DEMO_01"
+
+MOBILITY_WINDOW_SEC = 10
+MOBILITY_MIN_SAMPLES = FPS * 5
+MOBILITY_SAVE_INTERVAL_SEC = 10
+
+# ค่า baseline แบบเริ่มต้นสำหรับ prototype
+BASELINE_SPEED = 22.0
+BASELINE_SWAY = 18.0
+BASELINE_HEIGHT = 110.0
 
 # ================= COCO SKELETON =================
 SKELETON = [
@@ -77,8 +88,10 @@ def draw_skeleton(frame, kpts):
 def pick_device():
     try:
         import torch
-        if torch.backends.mps.is_available(): return "mps"
-        if torch.cuda.is_available(): return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
     except Exception:
         pass
     return "cpu"
@@ -113,25 +126,101 @@ def upload_async(incident_id, clip_path):
 
 # ================= MOTION CHECK =================
 def hip_drop_speed(prev_kpts, curr_kpts):
-    if prev_kpts is None or len(prev_kpts) == 0: 
+    if prev_kpts is None or len(prev_kpts) == 0:
         return 0.0
-    
+
     prev = np.asarray(prev_kpts)
     curr = np.asarray(curr_kpts)
-    
+
     prev_hip_y = (prev[11][1] + prev[12][1]) / 2.0
     curr_hip_y = (curr[11][1] + curr[12][1]) / 2.0
-    
+
     dy = curr_hip_y - prev_hip_y
     return float(dy) if dy > 0 else 0.0
 
 def is_still(motion_buffer):
-    if len(motion_buffer) < 10: 
+    if len(motion_buffer) < 10:
         return False
-    recent_motion = list(motion_buffer)[-10:] 
+    recent_motion = list(motion_buffer)[-10:]
     avg_motion = np.mean(recent_motion)
     max_motion = np.max(recent_motion)
     return avg_motion < 1.5 and max_motion < 2.5
+
+# ================= MOBILITY TREND UTILS =================
+def body_center(kpts):
+    arr = np.asarray(kpts)
+    xs = arr[:, 0]
+    ys = arr[:, 1]
+    return float(np.mean(xs)), float(np.mean(ys))
+
+def body_height_px(kpts):
+    arr = np.asarray(kpts)
+    ys = arr[:, 1]
+    return float(np.max(ys) - np.min(ys))
+
+def shoulder_width_px(kpts):
+    arr = np.asarray(kpts)
+    return float(abs(arr[6][0] - arr[5][0]))
+
+def hip_center(kpts):
+    arr = np.asarray(kpts)
+    x = (arr[11][0] + arr[12][0]) / 2.0
+    y = (arr[11][1] + arr[12][1]) / 2.0
+    return float(x), float(y)
+
+def shoulder_center(kpts):
+    arr = np.asarray(kpts)
+    x = (arr[5][0] + arr[6][0]) / 2.0
+    y = (arr[5][1] + arr[6][1]) / 2.0
+    return float(x), float(y)
+
+def body_tilt_deg(kpts):
+    sx, sy = shoulder_center(kpts)
+    hx, hy = hip_center(kpts)
+    dx = sx - hx
+    dy = hy - sy
+    if dy == 0:
+        return 90.0
+    angle = np.degrees(np.arctan2(abs(dx), abs(dy)))
+    return float(angle)
+
+def center_speed_px_per_sec(prev_kpts, curr_kpts, fps):
+    if prev_kpts is None or curr_kpts is None:
+        return 0.0
+    px1, py1 = body_center(prev_kpts)
+    px2, py2 = body_center(curr_kpts)
+    dist = np.sqrt((px2 - px1) ** 2 + (py2 - py1) ** 2)
+    return float(dist * fps)
+
+def sway_score(window_centers_x):
+    if len(window_centers_x) < 2:
+        return 0.0
+    return float(np.std(window_centers_x))
+
+def estimate_risk_score(avg_speed, avg_sway, avg_tilt, avg_height):
+    speed_drop_ratio = max(0.0, (BASELINE_SPEED - avg_speed) / max(BASELINE_SPEED, 1e-6))
+    sway_rise_ratio = max(0.0, (avg_sway - BASELINE_SWAY) / max(BASELINE_SWAY, 1e-6))
+    height_drop_ratio = max(0.0, (BASELINE_HEIGHT - avg_height) / max(BASELINE_HEIGHT, 1e-6))
+    tilt_ratio = min(avg_tilt / 45.0, 1.0)
+
+    score = (
+        speed_drop_ratio * 35.0 +
+        sway_rise_ratio * 30.0 +
+        height_drop_ratio * 20.0 +
+        tilt_ratio * 15.0
+    )
+
+    return float(max(0.0, min(100.0, score)))
+
+def risk_level(score):
+    if score >= 60:
+        return "high"
+    if score >= 30:
+        return "medium"
+    return "low"
+
+def date_key_local():
+    return datetime.now().strftime("%Y-%m-%d")
 
 # ================= CAMERA THREAD =================
 class CaptureThread:
@@ -186,7 +275,14 @@ def main():
     rule_buffer = deque(maxlen=SEQ_LEN)
     motion_buffer = deque(maxlen=15)
     fall_history = deque(maxlen=TEMPORAL_WINDOW)
-    
+
+    mobility_speed_buffer = deque(maxlen=FPS * MOBILITY_WINDOW_SEC)
+    mobility_center_x_buffer = deque(maxlen=FPS * MOBILITY_WINDOW_SEC)
+    mobility_tilt_buffer = deque(maxlen=FPS * MOBILITY_WINDOW_SEC)
+    mobility_height_buffer = deque(maxlen=FPS * MOBILITY_WINDOW_SEC)
+
+    last_mobility_save_ts = 0
+
     lying_frames = 0
     prev_kpts = None
     last_incident_ts = 0
@@ -194,13 +290,13 @@ def main():
     fall_display_until = 0
 
     lying_start_time = None
-    impact_detected_time = 0  
+    impact_detected_time = 0
 
     recording_post = False
     post_frames = []
     pre_frames = None
 
-    current_incident_id = [None] 
+    current_incident_id = [None]
     clip_stamp = None
     fall_type = "UNKNOWN"
 
@@ -232,6 +328,17 @@ def main():
 
             motion = hip_drop_speed(prev_kpts, kpts)
             motion_buffer.append(motion)
+
+            speed_now = center_speed_px_per_sec(prev_kpts, kpts, FPS)
+            center_x_now, _ = body_center(kpts)
+            tilt_now = body_tilt_deg(kpts)
+            height_now = body_height_px(kpts)
+
+            mobility_speed_buffer.append(speed_now)
+            mobility_center_x_buffer.append(center_x_now)
+            mobility_tilt_buffer.append(tilt_now)
+            mobility_height_buffer.append(height_now)
+
             prev_kpts = kpts
 
             if rule:
@@ -244,42 +351,43 @@ def main():
 
                 try:
                     proba = float(xgb_model.predict_proba(X)[0][1])
-                except Exception as e:
+                except Exception:
                     proba = 0.0
 
             rule_votes = sum(rule_buffer)
             rule_fall = rule_votes >= RULE_VOTE_THRESHOLD
-            
             motion_spike = motion > MOTION_SPIKE_THRESHOLD
-            
-            # ✅ 3. ปรับเงื่อนไขการนอนให้หลังขนานพื้นจริงๆ
             posture_fall = angle_abs > 70 and height_norm < 1.0
             is_ai_fall = proba >= XGB_THRESHOLD
 
-           
-            # Step 1: ตรวจจับจังหวะร่วงแนวดิ่ง 
+            fall_history.append(
+                {
+                    "ts": now,
+                    "rule_fall": rule_fall,
+                    "motion_spike": motion_spike,
+                    "posture_fall": posture_fall,
+                    "is_ai_fall": is_ai_fall,
+                    "proba": proba,
+                }
+            )
+
+            # Step 1: ตรวจจับจังหวะร่วงแนวดิ่ง
             if motion_spike:
                 if impact_detected_time == 0:
                     impact_detected_time = now
 
-            # Step 2: ถ้าร่วงมาแล้ว (ไม่เกิน 5 วินาที) ให้เช็กว่านอนแหม็บอยู่ไหม
+            # Step 2: ถ้าร่วงมาแล้ว ให้เช็กว่านอนอยู่ไหม
             if impact_detected_time > 0 and (now - impact_detected_time) < 5.0:
-                
-                # ถ้า AI ฟันธงว่าล้ม หรือท่าทางเหมือนนอนอยู่
                 if is_ai_fall or posture_fall:
                     lying_frames += 1
                 else:
-                    lying_frames = max(0, lying_frames - 1) 
+                    lying_frames = max(0, lying_frames - 1)
 
                 if lying_start_time is None:
                     lying_start_time = now
 
-                # ถ้านอนกองบนพื้นครบ 3 วินาทีตามกรอบเวลา
                 if lying_frames >= LYING_CONFIRM_FRAMES:
-                    
-                    # เช็กว่านอนแน่นิ่ง ไม่ขยับตัว
                     if is_still(motion_buffer):
-                        
                         if now > fall_cooldown_until and now - last_incident_ts > MIN_INCIDENT_GAP:
                             print("[ALERT] 🚨 FALL DETECTED! 🚨")
                             fall_display_until = now + DISPLAY_FALL_SECONDS
@@ -291,7 +399,7 @@ def main():
                             pre_frames = cap_thread.last_n(PRE_SEC * FPS)
                             recording_post = True
                             post_frames = []
-                            current_incident_id[0] = None 
+                            current_incident_id[0] = None
 
                             def alert_backend(prob_val, id_container):
                                 try:
@@ -302,7 +410,11 @@ def main():
                                 except Exception as e:
                                     print("[ERROR] Failed to send incident API:", e)
 
-                            threading.Thread(target=alert_backend, args=(float(proba), current_incident_id), daemon=True).start()
+                            threading.Thread(
+                                target=alert_backend,
+                                args=(float(proba), current_incident_id),
+                                daemon=True
+                            ).start()
 
                             impact_detected_time = 0
                             lying_frames = 0
@@ -314,13 +426,70 @@ def main():
                 if (now - impact_detected_time) >= 5.0:
                     impact_detected_time = 0
 
+            # ---------- SAVE MOBILITY TREND ----------
+            if (
+                len(mobility_speed_buffer) >= MOBILITY_MIN_SAMPLES
+                and (now - last_mobility_save_ts) >= MOBILITY_SAVE_INTERVAL_SEC
+            ):
+                avg_speed = float(np.mean(mobility_speed_buffer))
+                avg_sway = sway_score(mobility_center_x_buffer)
+                avg_tilt = float(np.mean(mobility_tilt_buffer))
+                avg_height = float(np.mean(mobility_height_buffer))
+
+                score = estimate_risk_score(
+                    avg_speed=avg_speed,
+                    avg_sway=avg_sway,
+                    avg_tilt=avg_tilt,
+                    avg_height=avg_height,
+                )
+
+                level = risk_level(score)
+
+                metric_payload = {
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "avgSpeedPxPerSec": avg_speed,
+                    "avgSwayPx": avg_sway,
+                    "avgTiltDeg": avg_tilt,
+                    "avgHeightPx": avg_height,
+                    "riskScore": score,
+                    "riskLevel": level,
+                    "windowSec": MOBILITY_WINDOW_SEC,
+                    "source": "edge_camera",
+                }
+
+                try:
+                    save_mobility_metric(PATIENT_ID, metric_payload)
+
+                    save_mobility_daily_summary(
+                        PATIENT_ID,
+                        date_key_local(),
+                        {
+                            "latestAvgSpeedPxPerSec": avg_speed,
+                            "latestAvgSwayPx": avg_sway,
+                            "latestAvgTiltDeg": avg_tilt,
+                            "latestAvgHeightPx": avg_height,
+                            "latestRiskScore": score,
+                            "latestRiskLevel": level,
+                        },
+                    )
+
+                    print(
+                        f"[MOBILITY] saved | speed={avg_speed:.2f} "
+                        f"sway={avg_sway:.2f} tilt={avg_tilt:.2f} "
+                        f"height={avg_height:.2f} risk={score:.1f} ({level})"
+                    )
+                except Exception as e:
+                    print("[ERROR] save_mobility_metric failed:", e)
+
+                last_mobility_save_ts = now
+
         # ---------- RECORD POST & UPLOAD ----------
         if recording_post:
             post_frames.append(frame.copy())
 
             if len(post_frames) >= POST_SEC * FPS:
                 recording_post = False
-                clip_frames = pre_frames + post_frames # type: ignore
+                clip_frames = (pre_frames or []) + post_frames
                 clip_path = os.path.join(CLIP_DIR, f"fall_{clip_stamp}.mp4")
 
                 def save_and_upload(frames, path, id_container):
@@ -328,7 +497,7 @@ def main():
                     write_clip_mp4(path, frames, FPS, FRAME_W, FRAME_H)
                     fixed_path = fix_mp4_for_web(path)
                     print(f"[INFO] Clip saved locally: {fixed_path}")
-                    
+
                     wait_time = 0
                     while id_container[0] is None and wait_time < 15:
                         time.sleep(1)
@@ -340,14 +509,18 @@ def main():
                     else:
                         print("[WARN] API Timeout (15s). No incident ID. Clip NOT uploaded.")
 
-                threading.Thread(target=save_and_upload, args=(clip_frames, clip_path, current_incident_id), daemon=True).start()
+                threading.Thread(
+                    target=save_and_upload,
+                    args=(clip_frames, clip_path, current_incident_id),
+                    daemon=True
+                ).start()
 
         # ---------- UI ----------
         if now < fall_display_until:
             current_state = "FALL DETECTED"
             state_color = (0, 0, 255)
 
-        fps = 1.0 / (time.time() - prev_time)
+        fps = 1.0 / max((time.time() - prev_time), 1e-6)
         prev_time = time.time()
 
         display = frame.copy()
@@ -357,7 +530,19 @@ def main():
         if current_state == "FALL DETECTED":
             cv2.putText(display, f"TYPE: {fall_type}", (20, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        cv2.putText(display, f"FPS: {fps:.1f}", (20, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+        if len(mobility_speed_buffer) > 0:
+            live_speed = float(np.mean(mobility_speed_buffer))
+            live_sway = sway_score(mobility_center_x_buffer)
+            live_tilt = float(np.mean(mobility_tilt_buffer)) if len(mobility_tilt_buffer) > 0 else 0.0
+            live_height = float(np.mean(mobility_height_buffer)) if len(mobility_height_buffer) > 0 else 0.0
+            live_risk = estimate_risk_score(live_speed, live_sway, live_tilt, live_height)
+
+            cv2.putText(display, f"MOBILITY SPEED: {live_speed:.1f}", (20, 125), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+            cv2.putText(display, f"SWAY: {live_sway:.1f}", (20, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 0), 2)
+            cv2.putText(display, f"RISK: {live_risk:.1f}", (20, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 165, 255), 2)
+            cv2.putText(display, f"LEVEL: {risk_level(live_risk).upper()}", (20, 200), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 165, 255), 2)
+
+        cv2.putText(display, f"FPS: {fps:.1f}", (20, 230), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
         cv2.imshow("Fall Detection", display)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):

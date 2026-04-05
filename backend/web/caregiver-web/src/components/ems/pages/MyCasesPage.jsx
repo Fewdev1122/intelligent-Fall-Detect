@@ -7,27 +7,27 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-/* ---------------- UNIT CONFIG ---------------- */
 const EMS_UNIT_ID = "EMS_UNIT_DEMO_01";
 
-// Enhanced Status Badge
+/* ---------------- STATUS ---------------- */
 function StatusBadge({ status }) {
   const styles = {
-    EMS_DISPATCHED: "bg-blue-600 text-white border-transparent",
-    EMS_ARRIVED: "bg-emerald-600 text-white border-transparent",
-    DEFAULT: "bg-slate-100 text-slate-500 border-slate-200",
+    EMS_DISPATCHED: "bg-blue-600 text-white border-blue-600",
+    EMS_ARRIVED: "bg-emerald-600 text-white border-emerald-600",
+    DEFAULT: "bg-slate-100 text-slate-600 border-slate-300",
   };
 
-  const currentStyle = styles[status] || styles.DEFAULT;
+  const cls = styles[status] || styles.DEFAULT;
   const label = status?.replace("EMS_", "").replace("_", " ") || "PENDING";
 
   return (
-    <span className={`text-[10px] font-black px-2.5 py-1 rounded-md border uppercase tracking-widest shadow-sm ${currentStyle}`}>
+    <span className={`text-[10px] font-bold px-2 py-1 border uppercase ${cls}`}>
       {label}
     </span>
   );
 }
 
+/* ---------------- UTILS ---------------- */
 function toMillis(ts) {
   if (!ts) return 0;
   if (typeof ts?.toMillis === "function") return ts.toMillis();
@@ -38,24 +38,27 @@ function toMillis(ts) {
 
 function toLocalTimeText(createdAt) {
   try {
-    if (!createdAt) return "N/A";
-    const date = typeof createdAt?.toDate === "function" ? createdAt.toDate() : new Date(createdAt);
-    return date.toLocaleString('en-GB', { 
-      day: '2-digit', month: 'short', year: 'numeric', 
-      hour: '2-digit', minute: '2-digit' 
+    if (!createdAt) return "-";
+    const date = typeof createdAt?.toDate === "function"
+      ? createdAt.toDate()
+      : new Date(createdAt);
+
+    return date.toLocaleString("th-TH", {
+      hour: "2-digit",
+      minute: "2-digit",
     });
   } catch {
-    return "N/A";
+    return "-";
   }
 }
 
+/* ---------------- PAGE ---------------- */
 export default function MyCasesPage() {
   const [qText, setQText] = useState("");
   const [items, setItems] = useState([]);
   const [err, setErr] = useState(null);
 
   useEffect(() => {
-    // Optimized query for specific unit's assigned cases
     const q = query(
       collection(db, "incidents"),
       where("ems.assignedUnitId", "==", EMS_UNIT_ID)
@@ -73,14 +76,13 @@ export default function MyCasesPage() {
     return () => unsub();
   }, []);
 
-  // Filter Active Missions only (Dispatched or Arrived)
   const activeItems = useMemo(() => {
     const allowed = new Set(["EMS_DISPATCHED", "EMS_ARRIVED"]);
-    const filtered = items.filter((x) => allowed.has(x.status));
-    return filtered.sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
+    return items
+      .filter((x) => allowed.has(x.status))
+      .sort((a, b) => toMillis(b.createdAt) - toMillis(a.createdAt));
   }, [items]);
 
-  // Search Logic
   const filteredList = useMemo(() => {
     const needle = qText.trim().toLowerCase();
     if (!needle) return activeItems;
@@ -89,96 +91,118 @@ export default function MyCasesPage() {
       const name = (x.patient?.name || x.patientName || "").toLowerCase();
       const addr = (x.home?.address || x.address || "").toLowerCase();
       const id = String(x.id || "").toLowerCase();
+
       return id.includes(needle) || name.includes(needle) || addr.includes(needle);
     });
   }, [qText, activeItems]);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      <TopBar title="My Active Missions" subtitle={`Authorized: ${EMS_UNIT_ID}`} />
+    <div className="min-h-screen bg-slate-100">
+      <TopBar title="My Missions" subtitle={`Unit: ${EMS_UNIT_ID}`} />
 
-      <div className="mx-auto max-w-[1600px] px-6 py-8 grid grid-cols-12 gap-8">
+      <div className="mx-auto max-w-[1600px] px-4 py-4 grid grid-cols-12 gap-4">
         
-        {/* Sidebar */}
-        <div className="col-span-12 lg:col-span-3 xl:col-span-2">
+        {/* SIDEBAR */}
+        <div className="col-span-12 lg:col-span-2">
           <SideNav />
         </div>
 
-        {/* Main Content Area */}
-        <div className="col-span-12 lg:col-span-9 xl:col-span-10 space-y-6">
-          
-          <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-            
-            {/* Header / Search Area */}
-            <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row gap-6 items-center justify-between">
-              <div className="relative w-full md:max-w-lg">
-              
-              </div>
+        {/* MAIN */}
+        <div className="col-span-12 lg:col-span-10 space-y-4">
 
-              <Link
-                href="/ems/my-cases/completed"
-                className="group flex items-center gap-3 rounded-2xl bg-slate-900 px-6 py-4 text-sm font-black text-white hover:bg-slate-800 transition-all shadow-lg"
-              >
-                <span>Mission History</span>
-              
-              </Link>
+          {/* HEADER */}
+          <div className="flex items-center justify-between border border-slate-300 bg-white px-4 py-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase">
+                Active Missions
+              </p>
+              <h3 className="text-lg font-bold text-slate-900">
+                Assigned Cases
+              </h3>
             </div>
 
-            {/* Error Message */}
-            {err && (
-              <div className="mx-8 mt-4 p-4 rounded-xl bg-rose-50 border border-rose-100 text-xs font-bold text-rose-600">
-                ⚠️ System Error: {err}
-              </div>
-            )}
+            <div className="text-right">
+              <p className="text-xl font-bold text-blue-600">
+                {filteredList.length}
+              </p>
+              <p className="text-xs text-slate-400 uppercase">
+                total
+              </p>
+            </div>
+          </div>
 
-            {/* Incident List */}
-            <div className="divide-y divide-slate-50">
+          {/* SEARCH + ACTION */}
+          <div className="flex flex-col md:flex-row gap-3 items-center justify-between">
+            <input
+              value={qText}
+              onChange={(e) => setQText(e.target.value)}
+              placeholder="Search patient / ID / location"
+              className="w-full md:max-w-md border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+            />
+
+            <Link
+              href="/ems/my-cases/completed"
+              className="border border-slate-900 bg-slate-900 text-white px-4 py-2 text-sm font-semibold hover:bg-slate-800"
+            >
+              History
+            </Link>
+          </div>
+
+          {/* ERROR */}
+          {err && (
+            <div className="border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-600">
+              Error: {err}
+            </div>
+          )}
+
+          {/* TABLE */}
+          <div className="bg-white border border-slate-300">
+
+            <div className="grid grid-cols-12 px-4 py-3 bg-slate-100 border-b text-xs font-semibold text-slate-500 uppercase">
+              <div className="col-span-3">Patient</div>
+              <div className="col-span-5">Location</div>
+              <div className="col-span-2 text-center">Time</div>
+              <div className="col-span-1 text-center">Status</div>
+              <div className="col-span-1 text-right"></div>
+            </div>
+
+            <div className="divide-y">
               {filteredList.map((it) => (
                 <Link
                   key={it.id}
                   href={`/ems/incidents/${it.id}`}
-                  className="group block p-8 hover:bg-slate-50/80 transition-all"
+                  className="grid grid-cols-12 items-center px-4 py-4 hover:bg-slate-50"
                 >
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono text-[10px] font-black text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">
-                          #{it.id?.slice(-8)}
-                        </span>
-                        <StatusBadge status={it.status} />
-                      </div>
-                      
-                      <h3 className="text-xl font-black text-slate-900 group-hover:text-blue-600 transition-colors">
-                        {it.patient?.name || it.patientName || "Unidentified Patient"}
-                      </h3>
+                  <div className="col-span-3">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {it.patient?.name || it.patientName || "Unknown"}
+                    </p>
+                    <p className="text-xs text-slate-400 font-mono">
+                      #{it.id.slice(-6)}
+                    </p>
+                  </div>
 
-                      <div className="flex flex-col md:flex-row md:items-center gap-y-2 gap-x-6">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 italic">
-                          <span>🕒 Reported:</span>
-                          <span className="text-slate-600 not-italic">{toLocalTimeText(it.createdAt)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-400 italic">
-                          <span>📍 Location:</span>
-                          <span className="text-slate-600 not-italic line-clamp-1">{it.home?.address || it.address || "-"}</span>
-                        </div>
-                      </div>
-                    </div>
+                  <div className="col-span-5 text-sm text-slate-600 truncate">
+                    {it.home?.address || it.address || "-"}
+                  </div>
 
-                    <div className="flex items-center gap-4">
-                      <div className="h-12 w-12 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-sm">
-                        <span className="text-xl font-black">→</span>
-                      </div>
-                    </div>
+                  <div className="col-span-2 text-center text-xs text-slate-500">
+                    {toLocalTimeText(it.createdAt)}
+                  </div>
+
+                  <div className="col-span-1 text-center">
+                    <StatusBadge status={it.status} />
+                  </div>
+
+                  <div className="col-span-1 text-right text-blue-600 font-bold">
+                    →
                   </div>
                 </Link>
               ))}
 
-              {/* Empty State */}
               {filteredList.length === 0 && (
-                <div className="py-24 text-center">
-                  <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-slate-50 text-3xl mb-4">🚑</div>
-                  <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">No Active Missions</h3>
-                  <p className="text-sm text-slate-400 mt-1 font-medium">Any assigned emergency cases will appear here.</p>
+                <div className="py-16 text-center text-sm text-slate-400">
+                  No active missions
                 </div>
               )}
             </div>

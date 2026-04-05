@@ -1,184 +1,259 @@
 "use client";
-import { useEffect, useState } from "react";
 
-// --- 1. อนิเมชั่น Radar Scan (ธีมขาวสบายตา) ---
-function EmsSearchingOverlay({ incidentId }) {
+function EmsSearchingOverlay() {
   return (
-    <div className="absolute inset-0 z-[150] flex flex-col items-center justify-center bg-white/90 backdrop-blur-xl">
-      <div className="relative flex h-80 w-80 items-center justify-center">
-        {/* Pulse Effect */}
-        <div className="absolute inset-0 animate-[ping_3s_ease-in-out_infinite] rounded-full bg-blue-500/10"></div>
-        
-        {/* Radar Line */}
-        <div className="absolute inset-0 rounded-full border border-blue-500/10 overflow-hidden">
-          <div className="absolute top-1/2 left-1/2 w-[150%] h-[150%] -translate-x-1/2 -translate-y-1/2 bg-[conic-gradient(from_0deg,transparent_80%,rgba(59,130,246,0.15))] animate-[spin_2s_linear_infinite]"></div>
+    <div className="absolute inset-0 z-[150] flex items-center justify-center bg-white/85 px-6 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-xl">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-3xl">
+          🚑
         </div>
 
-        {/* Center Unit */}
-        <div className="relative flex flex-col items-center">
-          <div className="text-8xl animate-[bounce_0.8s_ease-in-out_infinite] drop-shadow-xl">🚑</div>
-          <div className="absolute -top-4 flex gap-8">
-             <div className="h-3 w-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]"></div>
-             <div className="h-3 w-3 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+        <h3 className="mt-4 text-lg font-semibold text-slate-900">
+          Contacting emergency services
+        </h3>
+
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          Please wait while we connect to the nearest available responder.
+        </p>
+
+        <div className="mt-5">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full w-1/2 animate-pulse rounded-full bg-blue-600" />
           </div>
         </div>
-      </div>
 
-      <div className="mt-10 text-center space-y-3 px-10">
-        <h3 className="text-3xl font-black text-slate-800 italic animate-pulse uppercase tracking-tighter">
-          Searching for EMS...
-        </h3>
-        <p className="text-blue-600 font-bold text-sm tracking-widest animate-bounce uppercase">
-          Contacting the nearest emergency  services
+        <p className="mt-3 text-xs text-slate-400">
+          Waiting for responder acceptance...
         </p>
-        <div className="px-4 py-2 bg-slate-100 border border-slate-200 rounded-2xl">
-          <span className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em]">Waiting for Unit Acceptance...</span>
-        </div>
       </div>
     </div>
   );
 }
 
-// --- 2. Tracking Stepper (ธีมขาวสบายตา) ---
 function CaseTracker({ status, emsInfo }) {
   const steps = ["Received", "On the way", "Arrived"];
-  const currentIdx = status === "EMS_ARRIVED" ? 2 : (status === "EMS_DISPATCHED" ? 1 : 0);
+  const currentIdx =
+    status === "EMS_ARRIVED" ? 2 : status === "EMS_DISPATCHED" ? 1 : 0;
 
   return (
-    <div className="mt-6 bg-white border border-slate-200 rounded-[2.5rem] p-6 shadow-xl shadow-slate-100">
-      <div className="flex items-center gap-4 mb-6 border-b border-slate-100 pb-4">
-        <div className="h-12 w-12 bg-blue-600 rounded-2xl flex items-center justify-center text-2xl shadow-lg shadow-blue-200">🏥</div>
-        <div>
-          <h4 className="text-slate-800 font-black text-lg leading-none mb-1">{emsInfo?.hospitalName || "Case Accepted by Responder"}</h4>
-          <p className="text-[10px] text-blue-500 font-black uppercase tracking-[0.2em] animate-pulse">
-            Status: {status.replace("EMS_", "")}
+    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-xl">
+          🏥
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900">
+            {emsInfo?.hospitalName || "Emergency responder assigned"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Current status: {String(status).replace("EMS_", "").replaceAll("_", " ")}
           </p>
         </div>
       </div>
-      <div className="relative flex justify-between px-2 pt-2">
-        <div className="absolute top-[18px] left-0 w-full h-0.5 bg-slate-100"></div>
-        {steps.map((label, i) => (
-          <div key={label} className="relative flex flex-col items-center">
-            <div className={`h-4 w-4 rounded-full border-2 transition-all duration-1000 ${
-              i <= currentIdx ? "bg-blue-600 border-white scale-125 shadow-lg shadow-blue-200" : "bg-slate-200 border-white"
-            }`}></div>
-            <span className={`mt-3 text-[10px] font-black uppercase tracking-tighter ${i <= currentIdx ? "text-blue-600" : "text-slate-300"}`}>
-              {label}
-            </span>
-          </div>
-        ))}
+
+      <div className="relative mt-5 flex justify-between">
+        <div className="absolute left-0 right-0 top-2 h-[2px] bg-slate-100" />
+
+        {steps.map((label, i) => {
+          const active = i <= currentIdx;
+          return (
+            <div key={label} className="relative z-10 flex flex-col items-center">
+              <div
+                className={`h-4 w-4 rounded-full border-2 ${
+                  active
+                    ? "border-blue-600 bg-blue-600"
+                    : "border-slate-300 bg-white"
+                }`}
+              />
+              <span
+                className={`mt-2 text-[11px] font-medium ${
+                  active ? "text-blue-700" : "text-slate-400"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-// --- Main AlertCard Component ---
-export default function AlertCard({ mode, latest, busy, createdAtText, clipUrl, onAction, emsRequesting, emsInfo }) {
+function VideoPanel({ clipUrl }) {
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm font-semibold text-slate-900">Incident video</p>
+        <span className="rounded-full bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700">
+          Replay
+        </span>
+      </div>
+
+      {clipUrl ? (
+        <video
+          src={clipUrl}
+          controls
+          autoPlay
+          className="aspect-video w-full rounded-2xl bg-slate-900 object-cover"
+        />
+      ) : (
+        <div className="flex aspect-video items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-400">
+          Video not available
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NoticeBox({ status }) {
+  const message =
+    status === "EMS_TRANSFERRED"
+      ? "The case is being transferred to a local emergency response team."
+      : "Please review the video above. If the situation looks unsafe, contact emergency services immediately.";
+
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-sm leading-6 text-amber-800">{message}</p>
+    </div>
+  );
+}
+
+export default function AlertCard({
+  mode,
+  latest,
+  busy,
+  createdAtText,
+  clipUrl,
+  onAction,
+  emsRequesting,
+  emsInfo,
+}) {
   const status = latest?.status || "NORMAL";
   const incidentId = latest?.id || null;
 
-  const isSearching = emsRequesting || 
-                     status === "EMS_REQUESTED" || 
-                     status === "EMS_CONTACTED" || 
-                     status === "EMS_TRANSFERRED";
+  const isSearching =
+    emsRequesting ||
+    status === "EMS_REQUESTED" ||
+    status === "EMS_CONTACTED" ||
+    status === "EMS_TRANSFERRED";
 
-  const isTracking = status === "EMS_DISPATCHED" || status === "EMS_ARRIVED";
+  const isTracking =
+    status === "EMS_DISPATCHED" || status === "EMS_ARRIVED";
 
-  const shouldShowAssessment = mode === "assessment" || isSearching || isTracking;
+  const shouldShowAssessment =
+    mode === "assessment" || isSearching || isTracking;
 
-  // 1. หน้าแจ้งเตือนสีแดง (Emergency Alert - คงสีแดงไว้เพื่อความปลอดภัย)
   if (mode === "emergency" && !isSearching && !isTracking) {
     return (
-      <div className="min-h-screen bg-red-600 flex flex-col items-center justify-center p-6 text-white text-center z-[100] fixed inset-0">
-        <div className="relative mb-10">
-          <div className="absolute inset-0 bg-white rounded-full animate-ping opacity-25"></div>
-          <div className="relative bg-white/20 p-10 rounded-full text-8xl shadow-2xl">🚨</div>
+      <div className="fixed inset-0 z-[100] overflow-hidden bg-rose-700 text-white">
+        <div className="absolute inset-0 animate-pulse bg-rose-600/40" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.14),transparent_40%)]" />
+
+        <div className="relative mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center px-6 text-center">
+          <div className="relative mb-6">
+            <div className="absolute inset-0 rounded-full bg-white/30 animate-ping" />
+            <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white/10 text-5xl shadow-2xl backdrop-blur">
+              🚨
+            </div>
+          </div>
+
+          <div className="rounded-full border border-white/20 bg-white/10 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-rose-50">
+            Emergency alert
+          </div>
+
+          <h1 className="mt-5 text-4xl font-extrabold tracking-tight">
+            FALL DETECTED
+          </h1>
+
+          <p className="mt-3 text-base text-rose-100">
+            Immediate attention required
+          </p>
+
+          <p className="mt-2 text-sm text-rose-200">
+            {createdAtText}
+          </p>
+
+          <div className="mt-8 w-full rounded-3xl bg-white p-5 text-slate-900 shadow-2xl">
+            <p className="text-sm leading-6 text-slate-600">
+              A fall may have occurred. Please review the incident and confirm
+              whether emergency help is needed.
+            </p>
+
+            <button
+              onClick={() => onAction("ACK")}
+              disabled={busy}
+              className="mt-5 w-full rounded-2xl bg-slate-900 py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-60"
+            >
+              {busy ? "Processing..." : "Review incident"}
+            </button>
+          </div>
         </div>
-        <h1 className="text-5xl font-black mb-4 italic tracking-tighter uppercase">Fall Detected!</h1>
-        <p className="text-white/70 mb-10 font-medium">Fall detected at: {createdAtText}</p>
-        <button 
-          onClick={() => onAction("ACK")} 
-          disabled={busy}
-          className="w-full max-w-sm py-6 bg-white text-red-600 rounded-[2.5rem] font-black text-2xl shadow-2xl active:scale-95 transition-all uppercase italic"
-        >
-          {busy ? "Processing..." : "Checking Incident"}
-        </button>
       </div>
     );
   }
 
-  // 2. หน้าประเมิน / เรดาร์ / ติดตามเคส (ธีมขาวสบายตา)
   if (shouldShowAssessment) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800 relative overflow-hidden fixed inset-0 z-[120]">
-        
-        {isSearching && <EmsSearchingOverlay incidentId={incidentId} />}
+      <div className="fixed inset-0 z-[120] min-h-screen overflow-hidden bg-slate-50 text-slate-900">
+        {isSearching && <EmsSearchingOverlay />}
 
-        <div className="max-w-md mx-auto p-6 flex flex-col min-h-screen relative z-10">
-          <header className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-black italic tracking-tight uppercase text-blue-600">Alert Center</h2>
-            <div className="px-3 py-1 bg-white rounded-full border border-slate-200 font-mono text-[10px] text-slate-400 italic uppercase tracking-widest shadow-sm">ID: {incidentId?.slice(-6)}</div>
+        <div className="mx-auto flex min-h-screen w-full max-w-md flex-col px-4 pb-6 pt-4">
+          <header className="mb-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Incident review
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {createdAtText}
+              </p>
+            </div>
+
+            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-500">
+              ID: {incidentId?.slice(-6) || "------"}
+            </div>
           </header>
 
-          {/* Replay Video Section */}
-          <div className="rounded-[3rem] bg-white border border-slate-200 p-4 mb-4 shadow-xl shadow-slate-200/50 relative overflow-hidden group">
-            <div className="absolute top-6 left-6 z-10 flex items-center gap-2">
-                <span className="h-2 w-2 bg-red-600 rounded-full animate-ping"></span>
-                <span className="bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-lg uppercase italic leading-none">Live Replay</span>
-            </div>
-            {clipUrl ? (
-              <video src={clipUrl} controls autoPlay className="w-full rounded-[2.2rem] bg-slate-900 aspect-video object-cover shadow-inner" />
+          <div className="space-y-4">
+            <VideoPanel clipUrl={clipUrl} />
+
+            {isTracking ? (
+              <CaseTracker status={status} emsInfo={emsInfo} />
             ) : (
-              <div className="aspect-video flex items-center justify-center bg-slate-100 rounded-[2.2rem] text-slate-300 italic font-mono text-sm tracking-widest border-2 border-dashed border-slate-200">Connecting Feed...</div>
+              <NoticeBox status={status} />
             )}
           </div>
 
-          {/* Status Details */}
-          {isTracking ? (
-             <CaseTracker status={status} emsInfo={emsInfo} />
-          ) : (
-            <div className="p-6 bg-blue-50 border border-blue-100 rounded-[2.5rem] text-[13px] text-blue-700 font-bold leading-relaxed shadow-sm">
-                <span className="font-black text-blue-600 uppercase mr-2 tracking-widest underline decoration-2 underline-offset-4">Notice:</span> 
-                {status === "EMS_TRANSFERRED" ? "กTransferring the call to the local emergency response team..." : "Please review the video above. If the situation is unsafe, press the red button below immediately."}
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="mt-auto grid grid-cols-1 gap-4 pt-8">
+          <div className="mt-auto pt-6">
             {!isTracking && !isSearching && (
-              <>
-                <button 
-                  onClick={() => onAction("EMS")} 
-                  disabled={busy} 
-                  className="group relative py-7 bg-red-600 text-white rounded-[2.5rem] font-black text-2xl shadow-[0_15px_40px_rgba(220,38,38,0.25)] active:scale-95 transition-all overflow-hidden flex items-center justify-center gap-4 border-b-4 border-red-800"
+              <div className="space-y-3">
+                <button
+                  onClick={() => onAction("EMS")}
+                  disabled={busy}
+                  className="w-full rounded-2xl bg-rose-600 py-4 text-sm font-semibold text-white shadow-lg shadow-rose-100 transition active:scale-[0.98] disabled:opacity-60"
                 >
-                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-[shimmer_2s_infinite]"></div>
-                   <span className="relative">Report an emergency</span>
+                  {busy ? "Processing..." : "Contact emergency services"}
                 </button>
-                <button 
-                  onClick={() => onAction("SAFE")} 
-                  disabled={busy} 
-                  className="py-5 bg-white text-slate-400 rounded-[2.5rem] font-black border-2 border-slate-100 uppercase tracking-[0.2em] text-[11px] hover:bg-slate-50 hover:text-slate-600 transition-all shadow-sm"
+
+                <button
+                  onClick={() => onAction("SAFE")}
+                  disabled={busy}
+                  className="w-full rounded-2xl border border-slate-200 bg-white py-4 text-sm font-semibold text-slate-700 transition active:scale-[0.98] disabled:opacity-60"
                 >
-                  safe / Wrong notification
+                  Mark as safe / false alert
                 </button>
-              </>
+              </div>
             )}
-            
+
             {(isSearching || isTracking) && (
-              <div className="py-7 bg-white text-blue-600 rounded-[2.5rem] font-black text-sm border-2 border-blue-100 text-center uppercase tracking-[0.3em] shadow-lg shadow-blue-50 animate-pulse flex items-center justify-center gap-3">
-                <span className="animate-spin text-xl text-blue-400">🌀</span>
-                {isSearching ? "Requesting Assistance..." : "Mission in Progress"}
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 py-4 text-center text-sm font-medium text-blue-700">
+                {isSearching
+                  ? "Requesting assistance..."
+                  : "Emergency response in progress"}
               </div>
             )}
           </div>
         </div>
-
-        <style jsx>{`
-          @keyframes shimmer {
-            100% { transform: translateX(100%); }
-          }
-        `}</style>
       </div>
     );
   }

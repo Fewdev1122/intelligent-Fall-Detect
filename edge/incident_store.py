@@ -1,4 +1,3 @@
-# edge/incident_store.py
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 
@@ -14,7 +13,6 @@ def _init():
 
     cred = credentials.ApplicationDefault()
 
-    # ✅ init แค่ครั้งเดียว
     if not firebase_admin._apps:
         _app = firebase_admin.initialize_app(cred, {"storageBucket": BUCKET})
     else:
@@ -28,7 +26,7 @@ def get_db():
 
 def get_bucket():
     _init()
-    return storage.bucket()  # ใช้ bucket จาก initialize_app
+    return storage.bucket(BUCKET)
 
 def set_incident_clip_url(incident_id: str, clip_url: str):
     _init()

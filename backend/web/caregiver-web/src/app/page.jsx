@@ -20,9 +20,95 @@ function toMs(t) {
   return null;
 }
 
-const LS_DISMISSED_KEY = "dismissedIncidentId";
+function num(v, fallback = 0) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
 
-// ✅ Demo-only Fake Senior Data (for demo purposes)
+function formatTrendValue(v, digits = 1) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "-";
+  return n.toFixed(digits);
+}
+
+function buildPath(points, width, height, padding = 10) {
+  if (!points.length) return "";
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const range = max - min || 1;
+
+  return points
+    .map((value, index) => {
+      const x =
+        padding +
+        (index * (width - padding * 2)) / Math.max(points.length - 1, 1);
+      const y =
+        height -
+        padding -
+        ((value - min) / range) * (height - padding * 2);
+      return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+    })
+    .join(" ");
+}
+
+function TrendChart({
+  title,
+  value,
+  unit,
+  points,
+  colorClass = "text-slate-900",
+  stroke = "#0f172a",
+  subtitle,
+}) {
+  const width = 320;
+  const height = 120;
+  const safePoints = points.length ? points : [0, 0, 0, 0];
+  const path = buildPath(safePoints, width, height);
+
+  const min = Math.min(...safePoints);
+  const max = Math.max(...safePoints);
+
+  return (
+    <section className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{title}</p>
+          <p className={`mt-1 text-2xl font-bold ${colorClass}`}>
+            {value}
+            {unit ? <span className="ml-1 text-base font-semibold">{unit}</span> : null}
+          </p>
+        </div>
+        {subtitle ? (
+          <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs text-slate-500">
+            {subtitle}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-3 overflow-hidden rounded-2xl bg-slate-50">
+        <svg viewBox={`0 0 ${width} ${height}`} className="h-28 w-full">
+          <path
+            d={path}
+            fill="none"
+            stroke={stroke}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between text-xs text-slate-400">
+        <span>min {formatTrendValue(min)}</span>
+        <span>max {formatTrendValue(max)}</span>
+      </div>
+    </section>
+  );
+}
+
+const LS_DISMISSED_KEY = "dismissedIncidentId";
+const PATIENT_ID = "PATIENT_DEMO_01";
+
 const SENIOR_DATA = {
   name: "Grandma Somsri",
   age: 78,
@@ -32,7 +118,71 @@ const SENIOR_DATA = {
   heartRate: 72,
   steps: 1240,
   weight: "54 kg",
+  walkingLessToday: true,
+  walkingSpeedDelta: -18,
+  stepsDelta: -12,
+  standUpRecoverySec: 14,
 };
+
+function getTodayStatus(latest, latestRiskLevel, latestRiskScore) {
+  const status = String(latest?.status || "NORMAL").toUpperCase();
+
+  if (status === "FALL_CONFIRMED") {
+    return {
+      label: "Emergency",
+      chip: "bg-rose-50 text-rose-700 border-rose-200",
+      dot: "bg-rose-500",
+    };
+  }
+
+  if (status.startsWith("EMS_")) {
+    return {
+      label: "Help on the way",
+      chip: "bg-indigo-50 text-indigo-700 border-indigo-200",
+      dot: "bg-indigo-500",
+    };
+  }
+
+  if (latestRiskLevel === "high" || latestRiskScore >= 60) {
+    return {
+      label: "High fall risk",
+      chip: "bg-rose-50 text-rose-700 border-rose-200",
+      dot: "bg-rose-500",
+    };
+  }
+
+  if (
+    latestRiskLevel === "medium" ||
+    latestRiskScore >= 30 ||
+    SENIOR_DATA.walkingLessToday
+  ) {
+    return {
+      label: "Needs attention",
+      chip: "bg-amber-50 text-amber-700 border-amber-200",
+      dot: "bg-amber-400",
+    };
+  }
+
+  return {
+    label: "Normal",
+    chip: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    dot: "bg-emerald-500",
+  };
+}
+
+function getDailyNote(latestRiskLevel, latestRiskScore, latestSpeed, latestSway) {
+  if (latestRiskLevel === "high" || latestRiskScore >= 60) {
+    return "Her mobility trend looks riskier than usual. Please check her condition closely and be ready to contact emergency support if needed.";
+  }
+
+  if (latestRiskLevel === "medium" || latestRiskScore >= 30) {
+    return `She may be moving more slowly or less steadily than usual. Current walking speed is ${formatTrendValue(
+      latestSpeed
+    )} px/s and sway is ${formatTrendValue(latestSway)} px.`;
+  }
+
+  return "No unusual mobility trend has been observed recently.";
+}
 
 export default function Page() {
   const [latest, setLatest] = useState(null);
@@ -42,15 +192,14 @@ export default function Page() {
   const [ackMode, setAckMode] = useState(false);
   const [lockedId, setLockedId] = useState(null);
 
-  // ✅ Track dismissed incident to avoid red screen after refresh
   const [dismissedId, setDismissedId] = useState(null);
-
-  // ✅ Lock clip URL during assessment mode (stable playback)
   const [stableClipUrl, setStableClipUrl] = useState(null);
 
-  // ✅ EMS status
   const [emsRequesting, setEmsRequesting] = useState(false);
   const [emsTrackId, setEmsTrackId] = useState(null);
+
+  const [mobilityMetrics, setMobilityMetrics] = useState([]);
+  const [dailySummaries, setDailySummaries] = useState([]);
 
   const audioRef = useRef(null);
 
@@ -62,35 +211,56 @@ export default function Page() {
     ? new Date(createdAtMs).toLocaleString("en-US")
     : "-";
 
-  // Emergency UI conditions
-  const EMERGENCY_UI = ["FALL_CONFIRMED", "EMS_REQUESTED"].includes(status)
-  && status !== "COMPLETED"
-  && status !== "SAFE_CONFIRMED";
+  const latestMetric = mobilityMetrics[0] || null;
+  const latestSummary = dailySummaries[0] || null;
 
-  // Check if this incident has been dismissed (acknowledged) on this device
+  const latestRiskScore = num(
+    latestSummary?.latestRiskScore ?? latestMetric?.riskScore,
+    0
+  );
+  const latestRiskLevel = String(
+    latestSummary?.latestRiskLevel ?? latestMetric?.riskLevel ?? "low"
+  ).toLowerCase();
+
+  const latestSpeed = num(
+    latestSummary?.latestAvgSpeedPxPerSec ?? latestMetric?.avgSpeedPxPerSec,
+    0
+  );
+  const latestSway = num(
+    latestSummary?.latestAvgSwayPx ?? latestMetric?.avgSwayPx,
+    0
+  );
+  const latestTilt = num(
+    latestSummary?.latestAvgTiltDeg ?? latestMetric?.avgTiltDeg,
+    0
+  );
+
+  const todayStatus = getTodayStatus(latest, latestRiskLevel, latestRiskScore);
+
+  const EMERGENCY_UI =
+    ["FALL_CONFIRMED", "EMS_REQUESTED"].includes(status) &&
+    status !== "COMPLETED" &&
+    status !== "SAFE_CONFIRMED";
+
   const isDismissed = !!(latest?.id && dismissedId && latest.id === dismissedId);
 
-  // Decide screen mode
   const mode = ackMode
     ? "assessment"
     : EMERGENCY_UI && !isDismissed
     ? "emergency"
     : "normal";
 
-  // Show tracking widget when EMS is ongoing
   const isOngoingCase =
-  latest &&
-  (String(status).startsWith("EMS_") || status === "FALL_CONFIRMED") &&
-  status !== "COMPLETED" &&
-  status !== "SAFE_CONFIRMED";
+    latest &&
+    (String(status).startsWith("EMS_") || status === "FALL_CONFIRMED") &&
+    status !== "COMPLETED" &&
+    status !== "SAFE_CONFIRMED";
 
-  // Lock clip during assessment mode
   useEffect(() => {
     if (ackMode && clipUrl && !stableClipUrl) setStableClipUrl(clipUrl);
     if (!ackMode) setStableClipUrl(null);
   }, [ackMode, clipUrl, stableClipUrl]);
 
-  // Load dismissed ID + setup audio
   useEffect(() => {
     try {
       const v = localStorage.getItem(LS_DISMISSED_KEY);
@@ -103,7 +273,6 @@ export default function Page() {
     return () => a.pause();
   }, []);
 
-  // Play/stop alert sound
   useEffect(() => {
     const a = audioRef.current;
     if (!a) return;
@@ -116,7 +285,6 @@ export default function Page() {
     }
   }, [audioReady, mode, ackMode]);
 
-  // Subscribe to Firebase (latest incident OR locked incident)
   useEffect(() => {
     let unsub;
 
@@ -125,7 +293,11 @@ export default function Page() {
         if (snap.exists()) setLatest({ id: snap.id, ...snap.data() });
       });
     } else {
-      const q = query(collection(db, "incidents"), orderBy("createdAt", "desc"), limit(1));
+      const q = query(
+        collection(db, "incidents"),
+        orderBy("createdAt", "desc"),
+        limit(1)
+      );
       unsub = onSnapshot(q, (snap) => {
         const d = snap.docs[0];
         setLatest(d ? { id: d.id, ...d.data() } : null);
@@ -135,7 +307,38 @@ export default function Page() {
     return () => unsub && unsub();
   }, [lockedId]);
 
-  // Stop EMS requesting animation when EMS side updates status
+  useEffect(() => {
+    const q = query(
+      collection(db, "mobility_metrics"),
+      orderBy("createdAt", "desc"),
+      limit(24)
+    );
+
+    return onSnapshot(q, (snap) => {
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((row) => !row.patientId || row.patientId === PATIENT_ID);
+
+      setMobilityMetrics(rows);
+    });
+  }, []);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "mobility_daily_summary"),
+      orderBy("updatedAt", "desc"),
+      limit(7)
+    );
+
+    return onSnapshot(q, (snap) => {
+      const rows = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((row) => !row.patientId || row.patientId === PATIENT_ID);
+
+      setDailySummaries(rows);
+    });
+  }, []);
+
   useEffect(() => {
     if (
       latest?.id === emsTrackId &&
@@ -146,22 +349,24 @@ export default function Page() {
   }, [latest?.id, status, emsTrackId]);
 
   useEffect(() => {
-  if (!latest?.id) return;
+    if (!latest?.id) return;
 
-  const s = String(latest.status || "").toUpperCase();
+    const s = String(latest.status || "").toUpperCase();
 
-  if (s === "COMPLETED" || s === "SAFE_CONFIRMED") {
-    setAckMode(false);
-    setLockedId(null);
-    setEmsRequesting(false);
-    setEmsTrackId(null);
+    if (s === "COMPLETED" || s === "SAFE_CONFIRMED") {
+      setAckMode(false);
+      setLockedId(null);
+      setEmsRequesting(false);
+      setEmsTrackId(null);
 
-    try { localStorage.removeItem("dismissedIncidentId"); } catch {}
-    setDismissedId(null);
-  }
-}, [latest?.id, latest?.status]);
+      try {
+        localStorage.removeItem("dismissedIncidentId");
+      } catch {}
 
-  // Handle actions from AlertCard
+      setDismissedId(null);
+    }
+  }, [latest?.id, latest?.status]);
+
   async function onAction(action) {
     if (!latest?.id) return;
 
@@ -188,7 +393,6 @@ export default function Page() {
         setLockedId(latest.id);
         setAckMode(true);
 
-        // 1) Prepare demo patient info (fake data for demo)
         const patientInfo = {
           name: SENIOR_DATA.name,
           age: SENIOR_DATA.age,
@@ -196,10 +400,15 @@ export default function Page() {
           condition: SENIOR_DATA.condition,
           weight: SENIOR_DATA.weight,
           latestHeartRate: SENIOR_DATA.heartRate,
+          walkingSpeedDelta: SENIOR_DATA.walkingSpeedDelta,
+          latestRiskScore,
+          latestRiskLevel,
+          latestAvgSpeedPxPerSec: latestSpeed,
+          latestAvgSwayPx: latestSway,
+          latestAvgTiltDeg: latestTilt,
           _note: "DEMO DATA (caregiver demo only)",
         };
 
-        // 2) Save to Firestore immediately for EMS snapshot
         await updateDoc(docRef, {
           patientInfo,
           status: "EMS_REQUESTED",
@@ -216,7 +425,6 @@ export default function Page() {
         setEmsTrackId(null);
       }
 
-      // Send API as usual
       const r = await fetch("/api/incidentAction", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -245,117 +453,251 @@ export default function Page() {
 
   const clipUrlForUI = ackMode ? stableClipUrl || clipUrl : clipUrl;
 
+  const recentActivity = [
+    {
+      time: "Live",
+      title: "Mobility risk score",
+      detail: `Current risk score is ${formatTrendValue(latestRiskScore)} (${latestRiskLevel}).`,
+    },
+    {
+      time: "Live",
+      title: "Walking speed",
+      detail: `Recent average speed is ${formatTrendValue(latestSpeed)} px/s.`,
+    },
+    {
+      time: "Live",
+      title: "Body sway",
+      detail: `Recent sway is ${formatTrendValue(latestSway)} px.`,
+    },
+  ];
+
+  const speedPoints = [...mobilityMetrics]
+    .reverse()
+    .map((item) => num(item.avgSpeedPxPerSec, 0));
+
+  const swayPoints = [...mobilityMetrics]
+    .reverse()
+    .map((item) => num(item.avgSwayPx, 0));
+
+  const riskPoints = [...mobilityMetrics]
+    .reverse()
+    .map((item) => num(item.riskScore, 0));
+
+  const dailyRiskPoints = [...dailySummaries]
+    .reverse()
+    .map((item) => num(item.latestRiskScore, 0));
+
   return (
-    <main className="min-h-screen bg-slate-50 font-sans">
-      {/* 1) Audio unlock overlay */}
+    <main className="min-h-screen bg-slate-50 text-slate-900">
       {!audioReady && (
         <button
           onClick={unlockAudio}
-          className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-6"
+          className="fixed inset-0 z-[200] flex items-end justify-center bg-black/40 px-4 pb-8 backdrop-blur-sm"
         >
-          <div className="bg-white p-8 rounded-[2.5rem] text-center shadow-2xl max-w-xs scale-110">
-            <div className="text-5xl mb-4">🔔</div>
-            <h3 className="text-xl font-black mb-2">Enable Alerts</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              Tap to allow alert sounds during emergencies.
-            </p>
-            <div className="py-4 bg-red-600 text-white rounded-2xl font-black text-lg animate-pulse">
-              Enable
+          <div className="w-full max-w-md rounded-3xl bg-white shadow-2xl">
+            <div className="border-b border-slate-100 px-5 py-4">
+              <p className="text-sm font-semibold text-slate-900">
+                Turn on emergency sound
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                This helps caregivers hear alerts immediately.
+              </p>
+            </div>
+            <div className="p-5">
+              <div className="rounded-2xl bg-rose-600 py-4 text-center text-sm font-semibold text-white">
+                Tap to enable
+              </div>
             </div>
           </div>
         </button>
       )}
 
-      {/* 2) Normal Dashboard */}
       {mode === "normal" && (
-        <div className="max-w-md mx-auto min-h-screen pb-32">
-          {/* Senior Profile Section (DEMO) */}
-          <header className="bg-white p-8 rounded-b-[3.5rem] shadow-xl shadow-slate-200/50 flex flex-col items-center text-center border-b border-slate-100">
-            <div className="h-24 w-24 rounded-full border-4 border-blue-500 p-1 mb-4 shadow-lg shadow-blue-200">
-              <img src={SENIOR_DATA.image} alt="profile" className="rounded-full bg-blue-50" />
-            </div>
-            <h1 className="text-2xl font-black text-slate-800 tracking-tight">
-              {SENIOR_DATA.name}
-            </h1>
+        <div className="mx-auto w-full max-w-md px-4 pb-28 pt-4">
+          <section className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center gap-4">
+              <img
+                src={SENIOR_DATA.image}
+                alt="profile"
+                className="h-16 w-16 rounded-2xl bg-slate-100 object-cover"
+              />
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-xl font-bold text-slate-900">
+                  {SENIOR_DATA.name}
+                </h1>
+                <p className="text-sm text-slate-500">
+                  {SENIOR_DATA.age} years old
+                </p>
 
-
-            <div className="mt-2 px-4 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-black uppercase tracking-widest">
-              ● System Normal
-            </div>
-          </header>
-
-          {/* Health Summary Cards (DEMO) */}
-          <div className="p-6 grid grid-cols-2 gap-4">
-            <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 group active:scale-95 transition-all">
-              <div className="bg-red-50 h-10 w-10 rounded-2xl flex items-center justify-center text-xl mb-3">
-                ❤️
-              </div>
-              <div className="text-3xl font-black text-slate-800">{SENIOR_DATA.heartRate}</div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                Heart Rate 
+                <div
+                  className={`mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${todayStatus.chip}`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${todayStatus.dot}`} />
+                  Today’s status: {todayStatus.label}
+                </div>
               </div>
             </div>
+          </section>
 
-            <div className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 active:scale-95 transition-all">
-              <div className="bg-blue-50 h-10 w-10 rounded-2xl flex items-center justify-center text-xl mb-3">
-                👣
-              </div>
-              <div className="text-3xl font-black text-slate-800">{SENIOR_DATA.steps}</div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">
-                Steps Today
-              </div>
+          <section className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Heart rate</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {SENIOR_DATA.heartRate}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">bpm</p>
             </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Mobility risk</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {formatTrendValue(latestRiskScore, 0)}
+              </p>
+              <p className="mt-1 text-xs capitalize text-slate-400">
+                {latestRiskLevel}
+              </p>
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Daily note</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {getDailyNote(latestRiskLevel, latestRiskScore, latestSpeed, latestSway)}
+            </p>
+          </section>
+
+          <section className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Walking speed</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {formatTrendValue(latestSpeed)}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">px/s</p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Body sway</p>
+              <p className="mt-1 text-2xl font-bold text-slate-900">
+                {formatTrendValue(latestSway)}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">px</p>
+            </div>
+          </section>
+
+          <div className="mt-4 space-y-4">
+            <TrendChart
+              title="Risk trend"
+              value={formatTrendValue(latestRiskScore, 0)}
+              unit=""
+              points={riskPoints}
+              stroke="#dc2626"
+              colorClass="text-rose-600"
+              subtitle="recent windows"
+            />
+
+            <TrendChart
+              title="Walking speed trend"
+              value={formatTrendValue(latestSpeed)}
+              unit="px/s"
+              points={speedPoints}
+              stroke="#2563eb"
+              colorClass="text-sky-700"
+              subtitle="recent windows"
+            />
+
+            <TrendChart
+              title="Sway trend"
+              value={formatTrendValue(latestSway)}
+              unit="px"
+              points={swayPoints}
+              stroke="#f59e0b"
+              colorClass="text-amber-600"
+              subtitle="recent windows"
+            />
+
+            <TrendChart
+              title="7-day risk summary"
+              value={formatTrendValue(latestRiskScore, 0)}
+              unit=""
+              points={dailyRiskPoints}
+              stroke="#7c3aed"
+              colorClass="text-violet-700"
+              subtitle="daily summary"
+            />
           </div>
 
-          {/* Medical Info Section (DEMO) */}
-          <div className="px-6 space-y-4">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] ml-2">
-              Medical Profile (Demo)
-            </h3>
-            <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100 space-y-4">
-              <div className="flex justify-between items-center border-b border-slate-50 pb-3">
-                <span className="text-sm font-bold text-slate-400">Blood Type</span>
-                <span className="text-sm font-black text-slate-800">{SENIOR_DATA.bloodType}</span>
+          <section className="mt-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">
+              Medical information
+            </p>
+
+            <div className="mt-3 space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Blood type</span>
+                <span className="font-medium text-slate-900">
+                  {SENIOR_DATA.bloodType}
+                </span>
               </div>
 
-              <div className="flex justify-between items-center border-b border-slate-50 pb-3">
-                <span className="text-sm font-bold text-slate-400">Conditions</span>
-                <span className="text-sm font-black text-slate-800">{SENIOR_DATA.condition}</span>
+              <div className="flex items-start justify-between gap-4">
+                <span className="text-slate-500">Conditions</span>
+                <span className="text-right font-medium text-slate-900">
+                  {SENIOR_DATA.condition}
+                </span>
               </div>
 
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-bold text-slate-400">Weight</span>
-                <span className="text-sm font-black text-slate-800">{SENIOR_DATA.weight}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500">Weight</span>
+                <span className="font-medium text-slate-900">
+                  {SENIOR_DATA.weight}
+                </span>
               </div>
             </div>
+          </section>
 
-            <div className="text-xs font-mono text-slate-400 px-2">
-              Latest incident time: {createdAtText}
+          <section className="mt-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-900">
+                Recent activity
+              </p>
+              <span className="text-xs text-slate-400">{createdAtText}</span>
             </div>
-          </div>
 
-          {/* Floating Tracking Widget */}
+            <div className="mt-3 space-y-3">
+              {recentActivity.map((item, i) => (
+                <div key={i} className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-800">
+                      {item.title}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {item.detail}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-xs text-slate-400">
+                    {item.time}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
           {isOngoingCase && (
-            <div className="fixed bottom-8 left-6 right-6 z-[100]">
+            <div className="fixed bottom-4 left-4 right-4 z-[100] mx-auto w-full max-w-md">
               <button
                 onClick={() => setAckMode(true)}
-                className="w-full bg-blue-600 p-5 rounded-[2.5rem] shadow-[0_20px_40px_rgba(37,99,235,0.4)] flex items-center justify-between border-2 border-white/20 animate-bounce"
+                className="w-full rounded-2xl bg-slate-900 px-4 py-4 text-left shadow-lg active:scale-[0.99]"
               >
-                <div className="flex items-center gap-4">
-                  <div className="bg-white/20 h-12 w-12 rounded-2xl flex items-center justify-center text-2xl shadow-inner">
-                    🚑
-                  </div>
-                  <div className="text-left">
-                    <div className="text-white font-black text-sm uppercase italic tracking-tight">
-                      Help is on the way...
-                    </div>
-                    <div className="text-blue-100 text-[10px] font-bold opacity-80">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Emergency case in progress
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">
                       Status: {status}
-                    </div>
+                    </p>
                   </div>
-                </div>
-                <div className="bg-white text-blue-600 h-10 w-10 rounded-full flex items-center justify-center font-black shadow-lg">
-                  →
+                  <span className="text-sm font-semibold text-white">Open</span>
                 </div>
               </button>
             </div>
@@ -363,7 +705,6 @@ export default function Page() {
         </div>
       )}
 
-      {/* 3) Alert & Emergency Management (Assessment / Red Screen) */}
       <AlertCard
         mode={mode}
         latest={latest}
